@@ -1,0 +1,7 @@
+.env
+.dev.vars
+node_modules/
+coverage/
+*.log
+real-data/
+secrets/
