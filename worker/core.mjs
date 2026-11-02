@@ -34,7 +34,7 @@ export function buildPublicProjection(snapshot) {
     schemaVersion:1,
     week:snapshot.week,
     generatedAt:snapshot.generatedAt,
-    processing:{provider:snapshot.processing?.provider ?? 'not-configured',model:snapshot.processing?.model ?? null,status:snapshot.processing?.status ?? 'blocked',processedAt:snapshot.processing?.processedAt ?? null},
+    processing:{provider:snapshot.processing?.provider ?? 'not-configured',model:snapshot.processing?.model ?? null,analysisVersion:snapshot.processing?.analysisVersion ?? null,status:snapshot.processing?.status ?? 'blocked',processedAt:snapshot.processing?.processedAt ?? null},
     themes:(snapshot.themes || []).map(theme=>({
       id:theme.id,label:theme.label,statements:(theme.statements || []).map((statement,i)=>({
         number:i+1,summary:statement.summary,intent:statement.intent,confidence:statement.confidence,needsHumanReview:Boolean(statement.needsHumanReview),
