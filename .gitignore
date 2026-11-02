@@ -5,3 +5,4 @@ coverage/
 *.log
 real-data/
 secrets/
+.wrangler/
