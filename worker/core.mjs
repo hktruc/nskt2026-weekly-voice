@@ -43,6 +43,7 @@ export function buildPublicProjection(snapshot) {
     })),
     excludedGap:(snapshot.excludedGap || []).map(row=>({sourceAnswerKey:row.sourceAnswerKey,assignmentId:row.assignmentId,submittedAt:row.submittedAt,reason:'outside-reporting-window'})),
     quarantineCount:Number(snapshot.quarantineCount || 0),
+    coverage:snapshot.coverage || null,
     source:{endpoint:'cohort-submissions',communityId:44,lastSuccessfulSyncAt:snapshot.lastSuccessfulSyncAt}
   };
 }
