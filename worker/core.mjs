@@ -75,6 +75,7 @@ export function validateAiResult(result, answerByKey) {
   for(const disposition of dispositions){if(!answerByKey.has(disposition.sourceAnswerKey))throw new Error(`AI disposition key not found: ${disposition.sourceAnswerKey}`);if(dispositionKeys.has(disposition.sourceAnswerKey))throw new Error(`AI disposition key duplicated: ${disposition.sourceAnswerKey}`);if(!['relevant','irrelevant','uncertain'].includes(disposition.status))throw new Error(`AI disposition invalid: ${disposition.status}`);dispositionKeys.add(disposition.sourceAnswerKey)}
   if(dispositionKeys.size!==answerByKey.size)throw new Error(`AI dispositions incomplete: ${dispositionKeys.size}/${answerByKey.size}`);
   for(const key of evidencedInputs)if(!dispositions.some(d=>d.sourceAnswerKey===key&&d.status==='relevant'))throw new Error(`AI evidenced answer is not marked relevant: ${key}`);
+  for(const disposition of dispositions)if(disposition.status==='relevant'&&!evidencedInputs.has(disposition.sourceAnswerKey))throw new Error(`AI relevant answer has no published evidence: ${disposition.sourceAnswerKey}`);
   return {...result,usedEvidenceKeys:[...used]};
 }
 

@@ -11,6 +11,7 @@
   "vars": {
     "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     "AI_FREE_ONLY_CONFIRMED": "true",
+    "AI_DAILY_CALL_CAP": "48",
     "AI_MAX_INPUT_CHARS": "30000"
   }
 }

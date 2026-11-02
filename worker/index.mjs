@@ -1,7 +1,7 @@
 import {normalizeApiResponse,buildPublicProjection,validateAiResult,prepareAiInput} from './core.mjs';
 
 const SNAPSHOT_KEY='last-good-public-v1';
-const ANALYSIS_VERSION='seven-categories-v3-dispositions';
+const ANALYSIS_VERSION='seven-categories-v4-segment-accounting';
 const VN_OFFSET=7*3600*1000;
 function windowFor(now=new Date()){
   const local=new Date(now.getTime()+VN_OFFSET), day=local.getUTCDay();
@@ -39,6 +39,9 @@ async function storePut(env,weekKey,value){const r=await env.SNAPSHOT_STORE.getB
 async function progressGet(env,weekKey){const r=await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/progress/${weekKey}`);return r.status===200?JSON.parse(await r.text()):null}
 async function progressPut(env,weekKey,value){const r=await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/progress/${weekKey}`,{method:'PUT',body:JSON.stringify(value)});if(!r.ok)throw new Error(`progress store ${r.status}`)}
 async function progressDelete(env,weekKey){await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/progress/${weekKey}`,{method:'DELETE'})}
+export function createRunBudget(limit=6){return {remaining:Math.max(0,Number(limit)||0),attempts:0}}
+export function reserveRunAttempt(budget){if(!budget||budget.remaining<=0)return false;budget.remaining--;budget.attempts++;return true}
+async function reserveDailyAiAttempt(env){const day=new Date().toISOString().slice(0,10),limit=Math.max(1,Number(env.AI_DAILY_CALL_CAP||48));const r=await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/quota/${day}/reserve`,{method:'POST',body:String(limit)});if(r.status===429)throw new Error('AI daily free-only call cap reached');if(!r.ok)throw new Error(`AI quota reservation failed: ${r.status}`)}
 function minimizeStoredProjection(value){
   if(!value) return null;
   const snapshot=JSON.parse(value);
@@ -50,8 +53,8 @@ export function expandOversizedAnswers(answers,maxChars){
   for(const answer of [...answers].sort((a,b)=>a.sourceAnswerKey.localeCompare(b.sourceAnswerKey))){
     const base={sourceAnswerKey:answer.sourceAnswerKey,questionText:answer.questionText,answerText:answer.answerText,submittedAt:answer.submittedAt};
     if(JSON.stringify(base).length<=maxChars){expanded.push(answer);continue}
-    const safe=Math.max(16,maxChars-JSON.stringify({...base,sourceAnswerKey:`${answer.sourceAnswerKey}#segment:9999`,answerText:''}).length-32);let offset=0,index=0;
-    while(offset<answer.answerText.length){let end=Math.min(answer.answerText.length,offset+safe);if(end<answer.answerText.length){const boundary=Math.max(answer.answerText.lastIndexOf('\n',end),answer.answerText.lastIndexOf(' ',end));if(boundary>offset+safe/2)end=boundary}const segment=answer.answerText.slice(offset,end);expanded.push({...answer,sourceAnswerKey:`${answer.sourceAnswerKey}#segment:${index}`,answerText:segment,originalSourceAnswerKey:answer.sourceAnswerKey,originalAnswerText:answer.answerText,segmentOffset:offset});offset=end;while(answer.answerText[offset]===' ')offset++;index++}
+    let offset=0,index=0;
+    while(offset<answer.answerText.length){const key=`${answer.sourceAnswerKey}#segment:${index}`;let low=1,high=answer.answerText.length-offset,best=0;while(low<=high){const length=Math.floor((low+high)/2),segment=answer.answerText.slice(offset,offset+length),size=JSON.stringify({sourceAnswerKey:key,questionText:answer.questionText,answerText:segment,submittedAt:answer.submittedAt}).length;if(size<=maxChars){best=length;low=length+1}else high=length-1}if(best===0)throw new Error(`answer metadata exceeds AI input limit: ${answer.sourceAnswerKey}`);let end=offset+best;if(end<answer.answerText.length){const boundary=Math.max(answer.answerText.lastIndexOf('\n',end),answer.answerText.lastIndexOf(' ',end));if(boundary>offset+best/2)end=boundary}const segment=answer.answerText.slice(offset,end);expanded.push({...answer,sourceAnswerKey:key,answerText:segment,originalSourceAnswerKey:answer.sourceAnswerKey,originalAnswerText:answer.answerText,segmentOffset:offset});offset=end;index++}
   }
   return expanded;
 }
@@ -74,44 +77,49 @@ async function loadWeekData(env,targetNow){
   const to=new Date(window.end.getTime()+21*86400000).toISOString().slice(0,10);
   const raw=await fetchDh3g(env,from,to), normalized=normalizeApiResponse(raw);
   const included=[],excludedGap=[];
-  for(const a of normalized.answers){const t=new Date(a.submittedAt);if(t>=window.start&&t<=window.end)included.push(a);else{const local=new Date(t.getTime()+VN_OFFSET),day=local.getUTCDay(),hour=local.getUTCHours();if(day===5||(day===4&&hour>=23)||(day===6&&hour<1))excludedGap.push(a)}}
+  const previousEnd=new Date(window.start.getTime()-26*3600000),nextStart=new Date(window.end.getTime()+26*3600000);
+  for(const a of normalized.answers){const t=new Date(a.submittedAt);if(t>=window.start&&t<=window.end)included.push(a);else if((t>previousEnd&&t<window.start)||(t>window.end&&t<nextStart))excludedGap.push(a)}
   const quarantineCount=normalized.quarantine.filter(a=>{const t=new Date(a.submittedAt);return t>=window.start&&t<=window.end}).length;
   return {window,weekKey,included,excludedGap,quarantineCount};
 }
-async function advanceWeek(env,targetNow,maxChunks=2){
+async function advanceWeek(env,targetNow,maxChunks=2,runBudget=createRunBudget(maxChunks)){
   const data=await loadWeekData(env,targetNow),maxChars=Number(env.AI_MAX_INPUT_CHARS||50000),chunks=splitAnswers(data.included,maxChars);
   const fingerprint=await fingerprintAnswers(data.included,{model:env.AI_MODEL,maxChars}),chunkManifest=chunks.map(chunk=>chunk.map(a=>a.sourceAnswerKey));
   let progress=await progressGet(env,data.weekKey);
-  if(!progress||progress.fingerprint!==fingerprint||JSON.stringify(progress.chunkManifest)!==JSON.stringify(chunkManifest))progress={fingerprint,analysisVersion:ANALYSIS_VERSION,model:env.AI_MODEL,maxChars,chunkManifest,nextChunk:0,totalChunks:chunks.length,themes:[],processedAnswers:0,processedSourceKeys:[],dispositionBySource:{},inputAnswers:data.included.length,startedAt:new Date().toISOString()};
+  const segmentTotals={};for(const row of chunks.flat()){const key=row.originalSourceAnswerKey||row.sourceAnswerKey;segmentTotals[key]=(segmentTotals[key]||0)+1}
+  if(!progress||progress.fingerprint!==fingerprint||JSON.stringify(progress.chunkManifest)!==JSON.stringify(chunkManifest))progress={fingerprint,analysisVersion:ANALYSIS_VERSION,model:env.AI_MODEL,maxChars,chunkManifest,nextChunk:0,totalChunks:chunks.length,themes:[],processedAnswers:0,processedSourceKeys:[],dispositionBySource:{},segmentTotals,inputAnswers:data.included.length,startedAt:new Date().toISOString()};
   let usedChunks=0;
-  for(let count=0;count<maxChunks&&progress.nextChunk<chunks.length;count++){
+  for(let count=0;count<maxChunks&&progress.nextChunk<chunks.length&&runBudget.remaining>0;count++){
+    if(!reserveRunAttempt(runBudget))break;
+    await reserveDailyAiAttempt(env);
     const chunk=chunks[progress.nextChunk],aiRaw=await classifyWithApprovedAi(env,chunk),chunkAnswerByKey=new Map(chunk.map(a=>[a.sourceAnswerKey,a])),checked=validateAiResult(aiRaw,chunkAnswerByKey);
-    mergeThemes(progress.themes,checked.themes);for(const disposition of checked.dispositions){const source=chunkAnswerByKey.get(disposition.sourceAnswerKey),key=source.originalSourceAnswerKey||source.sourceAnswerKey,previous=progress.dispositionBySource[key],rank={irrelevant:0,uncertain:1,relevant:2};if(!previous||rank[disposition.status]>rank[previous])progress.dispositionBySource[key]=disposition.status}progress.nextChunk++;progress.processedAnswers+=chunk.length;progress.processedSourceKeys=[...new Set([...(progress.processedSourceKeys||[]),...chunk.map(a=>a.originalSourceAnswerKey||a.sourceAnswerKey)])];usedChunks++;progress.updatedAt=new Date().toISOString();await progressPut(env,data.weekKey,progress);
+    mergeThemes(progress.themes,checked.themes);for(const disposition of checked.dispositions){const source=chunkAnswerByKey.get(disposition.sourceAnswerKey),key=source.originalSourceAnswerKey||source.sourceAnswerKey,state=progress.dispositionBySource[key]||{relevant:false,irrelevant:false,uncertain:false,segmentsProcessed:0};state[disposition.status]=true;state.segmentsProcessed++;progress.dispositionBySource[key]=state}progress.nextChunk++;progress.processedAnswers+=chunk.length;progress.processedSourceKeys=Object.entries(progress.dispositionBySource).filter(([key,state])=>state.segmentsProcessed>=(progress.segmentTotals[key]||1)).map(([key])=>key);usedChunks++;progress.updatedAt=new Date().toISOString();await progressPut(env,data.weekKey,progress);
   }
   if(progress.nextChunk<chunks.length)return {completed:false,usedChunks,weekKey:data.weekKey,processedAnswers:progress.processedAnswers,inputAnswers:progress.inputAnswers,totalChunks:chunks.length,nextChunk:progress.nextChunk};
   const now=new Date(),themes=cleanThemes(progress.themes),reflected=new Set(themes.flatMap(t=>t.statements).flatMap(s=>s.evidence.map(e=>e.sourceAnswerKey)));
-  const dispositions=Object.values(progress.dispositionBySource||{}),snapshot={week:{start:data.window.start.toISOString(),end:data.window.end.toISOString()},themes,excludedGap:data.excludedGap,quarantineCount:data.quarantineCount,coverage:{status:'completed',scannedAnswers:data.included.length,modelProcessedAnswers:new Set(progress.processedSourceKeys||[]).size,reflectedSourceAnswers:reflected.size,irrelevantAnswers:dispositions.filter(x=>x==='irrelevant').length,uncertainAnswers:dispositions.filter(x=>x==='uncertain').length,notReflectedAnswers:Math.max(0,data.included.length-reflected.size),pendingAnswers:0},generatedAt:now.toISOString(),lastSuccessfulSyncAt:now.toISOString(),processing:{provider:'Cloudflare Workers AI',model:env.AI_MODEL,status:'completed',processedAt:now.toISOString()}};
+  const dispositions=Object.values(progress.dispositionBySource||{}),snapshot={week:{start:data.window.start.toISOString(),end:data.window.end.toISOString()},themes,excludedGap:data.excludedGap,quarantineCount:data.quarantineCount,coverage:{status:'completed',scannedAnswers:data.included.length,modelProcessedAnswers:new Set(progress.processedSourceKeys||[]).size,reflectedSourceAnswers:reflected.size,irrelevantAnswers:dispositions.filter(x=>x.irrelevant&&!x.relevant&&!x.uncertain).length,uncertainAnswers:dispositions.filter(x=>x.uncertain).length,notReflectedAnswers:Math.max(0,data.included.length-reflected.size),pendingAnswers:0},generatedAt:now.toISOString(),lastSuccessfulSyncAt:now.toISOString(),processing:{provider:'Cloudflare Workers AI',model:env.AI_MODEL,status:'completed',processedAt:now.toISOString()}};
   const projection=buildPublicProjection(snapshot);await storePut(env,data.weekKey,JSON.stringify(projection));await progressDelete(env,data.weekKey);return {completed:true,usedChunks,weekKey:data.weekKey,projection};
 }
 async function syncCurrentAndBackfill(env){
   const currentWindow=windowFor(new Date());
   const currentKey=weekKeyFor(currentWindow),currentRaw=await storeGet(env,currentKey),currentNeeds=!currentRaw||Date.now()-new Date(JSON.parse(currentRaw).generatedAt).getTime()>6*3600000;
-  let budget=currentNeeds?5:6;
+  const runBudget=createRunBudget(6);
   for(let offset=1;offset<=8;offset++){
     const target=new Date(currentWindow.start.getTime()-offset*7*86400000+12*3600000);
     const key=weekKeyFor(windowFor(target));
-    if(!await storeGet(env,key)){try{const result=await advanceWeek(env,target,budget);budget-=result.usedChunks;if(!result.completed||budget<=0)break}catch(error){console.error('history_week_failed',key,error?.message);continue}}
+    if(!await storeGet(env,key)){const historyAllowance=Math.max(0,runBudget.remaining-(currentNeeds?1:0));if(historyAllowance<=0)break;try{const result=await advanceWeek(env,target,historyAllowance,runBudget);if(!result.completed||runBudget.remaining<=(currentNeeds?1:0))break}catch(error){console.error('history_week_failed',key,error?.message);continue}}
   }
-  if(currentNeeds)try{await advanceWeek(env,new Date(),1)}catch(error){console.error('current_week_failed',currentKey,error?.message)}
+  if(currentNeeds&&runBudget.remaining>0)try{await advanceWeek(env,new Date(),1,runBudget)}catch(error){console.error('current_week_failed',currentKey,error?.message)}
 }
 export class SnapshotStore {
   constructor(ctx){this.ctx=ctx}
   async fetch(request){
-    const url=new URL(request.url), week=url.pathname.match(/^\/week\/(\d{4}-\d{2}-\d{2})$/)?.[1],progressWeek=url.pathname.match(/^\/progress\/(\d{4}-\d{2}-\d{2})$/)?.[1];
+    const url=new URL(request.url), week=url.pathname.match(/^\/week\/(\d{4}-\d{2}-\d{2})$/)?.[1],progressWeek=url.pathname.match(/^\/progress\/(\d{4}-\d{2}-\d{2})$/)?.[1],quotaDay=url.pathname.match(/^\/quota\/(\d{4}-\d{2}-\d{2})\/reserve$/)?.[1];
     if(request.method==='GET'){const key=url.pathname==='/legacy'?SNAPSHOT_KEY:(week?`snapshot:${week}`:(progressWeek?`progress:${progressWeek}`:null));if(!key)return new Response('',{status:400});const value=await this.ctx.storage.get(key);return value?new Response(value):new Response('',{status:404})}
     if(request.method==='PUT'&&week){await this.ctx.storage.put(`snapshot:${week}`,await request.text());return new Response('ok')}
     if(request.method==='PUT'&&progressWeek){await this.ctx.storage.put(`progress:${progressWeek}`,await request.text());return new Response('ok')}
     if(request.method==='DELETE'&&progressWeek){await this.ctx.storage.delete(`progress:${progressWeek}`);return new Response('ok')}
+    if(request.method==='POST'&&quotaDay){const limit=Math.max(1,Number(await request.text())||1),key=`quota:${quotaDay}`,count=Number(await this.ctx.storage.get(key)||0);if(count>=limit)return new Response('daily cap reached',{status:429});await this.ctx.storage.put(key,count+1);return Response.json({reserved:true,count:count+1,limit})}
     return new Response('',{status:405})
   }
 }
