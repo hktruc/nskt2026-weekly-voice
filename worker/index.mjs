@@ -46,6 +46,7 @@ export function createRunBudget(limit=6){return {remaining:Math.max(0,Number(lim
 export function reserveRunAttempt(budget){if(!budget||budget.remaining<=0)return false;budget.remaining--;budget.attempts++;return true}
 export function shouldResumeFrozenProgress(progress,{model,maxChars}){return Boolean(progress&&progress.analysisVersion===ANALYSIS_VERSION&&progress.model===model&&progress.maxChars===maxChars)}
 export function evidenceInvariant(before,after){const collect=themes=>new Set(themes.flatMap(t=>t.statements.flatMap(s=>(s.evidence||[]).map(e=>JSON.stringify([t.id,s.intent,e.sourceAnswerKey,e.supportQuote]))))),expected=collect(before),actual=collect(after);return expected.size===actual.size&&[...expected].every(x=>actual.has(x))}
+export function needsHistoricalRefresh(snapshot,now=Date.now(),minimumAgeMs=24*3600000){const generated=Date.parse(snapshot?.generatedAt||'');return Number.isFinite(generated)&&now-generated>=minimumAgeMs}
 async function reserveDailyAiAttempt(env){const day=new Date().toISOString().slice(0,10),limit=Math.max(1,Number(env.AI_DAILY_CALL_CAP||48));const r=await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/quota/${day}/reserve`,{method:'POST',body:String(limit)});if(r.status===429)throw new Error('AI daily free-only call cap reached');if(!r.ok)throw new Error(`AI quota reservation failed: ${r.status}`)}
 function minimizeStoredProjection(value){
   if(!value) return null;
@@ -116,11 +117,13 @@ async function syncCurrentAndBackfill(env){
   const currentWindow=windowFor(new Date());
   const currentKey=weekKeyFor(currentWindow),currentRaw=await storeGet(env,currentKey),currentNeeds=!currentRaw||Date.now()-new Date(JSON.parse(currentRaw).generatedAt).getTime()>6*3600000;
   const runBudget=createRunBudget(6);
+  let missingOrPending=false;
   for(let offset=1;offset<=8;offset++){
     const target=new Date(currentWindow.start.getTime()-offset*7*86400000+12*3600000);
     const key=weekKeyFor(windowFor(target));
-    if(!await storeGet(env,key)){const historyAllowance=Math.max(0,runBudget.remaining-(currentNeeds?1:0));if(historyAllowance<=0)break;try{const result=await advanceWeek(env,target,historyAllowance,runBudget);if(!result.completed||runBudget.remaining<=(currentNeeds?1:0))break}catch(error){console.error('history_week_failed',key,error?.message);continue}}
+    if(!await storeGet(env,key)){missingOrPending=true;const historyAllowance=Math.max(0,runBudget.remaining-(currentNeeds?1:0));if(historyAllowance<=0)break;try{const result=await advanceWeek(env,target,historyAllowance,runBudget);if(!result.completed||runBudget.remaining<=(currentNeeds?1:0))break}catch(error){console.error('history_week_failed',key,error?.message);continue}}
   }
+  if(!missingOrPending&&runBudget.remaining>(currentNeeds?1:0)){for(let offset=1;offset<=2;offset++){const target=new Date(currentWindow.start.getTime()-offset*7*86400000+12*3600000),key=weekKeyFor(windowFor(target)),stored=await storeGet(env,key);if(stored&&needsHistoricalRefresh(JSON.parse(stored))){const allowance=Math.max(0,runBudget.remaining-(currentNeeds?1:0));if(!allowance)break;try{await advanceWeek(env,target,allowance,runBudget)}catch(error){console.error('history_refresh_failed',key,error?.message)}break}}}
   if(currentNeeds&&runBudget.remaining>0)try{await advanceWeek(env,new Date(),1,runBudget)}catch(error){console.error('current_week_failed',currentKey,error?.message)}
 }
 export class SnapshotStore {
