@@ -55,13 +55,15 @@ export function validateAiResult(result, answerByKey) {
     if(theme.id&&!categoryLabels[theme.id]) throw new Error(`AI category is invalid: ${theme.id}`);
     if(theme.id)theme.label=categoryLabels[theme.id];
     for(const statement of theme.statements || []) {
+    if(!Array.isArray(statement.evidence)||statement.evidence.length===0) throw new Error('AI statement evidence is required');
     if(statement.intent && !['praise','improvement','contribution','difficulty'].includes(statement.intent)) throw new Error(`AI intent is invalid: ${statement.intent}`);
     for(const evidence of statement.evidence || []) {
     const source=answerByKey.get(evidence.sourceAnswerKey);
     if(!source) throw new Error(`AI evidence key not found: ${evidence.sourceAnswerKey}`);
-    if(evidence.supportQuote && !source.answerText.includes(evidence.supportQuote)) throw new Error(`AI support quote not found in source: ${evidence.sourceAnswerKey}`);
+    if(String(statement.summary ?? '').trim()&&!String(evidence.supportQuote ?? '').trim()) throw new Error(`AI support quote is required: ${evidence.sourceAnswerKey}`);
+    if(evidence.supportQuote&&!source.answerText.includes(evidence.supportQuote)) throw new Error(`AI support quote not found in source: ${evidence.sourceAnswerKey}`);
     evidence.displayName=source.author.displayName; evidence.group=source.author.group;
-    evidence.submittedAt=source.submittedAt; evidence.originalAnswer=source.answerText; evidence.questionText=source.questionText;
+    evidence.submittedAt=source.submittedAt; evidence.originalAnswer=source.originalAnswerText||source.answerText; evidence.questionText=source.questionText;evidence.sourceAnswerKey=source.originalSourceAnswerKey||source.sourceAnswerKey;
     used.add(evidence.sourceAnswerKey);
     }
     }
