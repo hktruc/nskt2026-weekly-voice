@@ -6,7 +6,7 @@ Prototype công khai dùng dữ liệu giả lập cho Ban Phụng sự đọc v
 
 - UI responsive dùng **dữ liệu giả lập** trong `dist/fixtures.mjs`.
 - Chưa kết nối DH3G API, chưa dùng AI thật, chưa chứa tên/nội dung học viên thật.
-- Chủ sở hữu đã chọn website **công khai, không đăng nhập**. Mã nguồn demo đã phát hành tại `hktruc/nskt2026-weekly-voice`; Cloudflare chưa triển khai do OAuth token hiện thiếu scope `pages:write`.
+- Chủ sở hữu đã chọn website **công khai, không đăng nhập**. Mã nguồn demo ở `hktruc/nskt2026-weekly-voice`; bản fixture được triển khai bằng Workers Static Assets tại `https://nskt2026-weekly-voice-demo.hktruc.workers.dev`.
 
 ## Chạy local
 
@@ -44,7 +44,7 @@ node --test tests/*.test.mjs
 1. Với website công khai: hiển thị tên + nguyên văn góp ý, hay chỉ bản tổng hợp đã ẩn danh?
 2. Tài liệu endpoint/schema và cơ chế auth DH3G đang dùng ở dashboard NSKT2026 DEV.
 3. Dịch vụ AI nào đã được phê duyệt để xử lý phản hồi học viên, chính sách lưu dữ liệu và vùng xử lý.
-4. Cấp lại quyền Cloudflare Wrangler có scope `pages:write`, hoặc hoàn tất direct upload qua dashboard.
+4. Trước khi nối dữ liệu thật, tạo Worker API/server-side secrets và chính sách lưu trữ đã được phê duyệt; bản hiện tại chỉ là static demo.
 
 Không commit secrets, dữ liệu học viên, log payload thật hoặc output AI chứa dữ liệu thật.
 
