@@ -5,5 +5,5 @@
   "assets": { "directory": "./dist", "binding": "ASSETS" },
   "kv_namespaces": [{ "binding": "SNAPSHOTS", "id": "CREATE_WITH_APPROVED_ACCOUNT" }],
   "triggers": { "crons": ["17 */3 * * *"] },
-  "vars": { "AI_ENDPOINT": "APPROVED_PROVIDER_ENDPOINT", "AI_MODEL": "APPROVED_MODEL_NAME" }
+  "vars": { "AI_ENDPOINT": "APPROVED_PROVIDER_ENDPOINT", "AI_MODEL": "APPROVED_MODEL_NAME", "AI_FREE_ONLY_CONFIRMED": "false", "AI_MAX_INPUT_CHARS": "50000" }
 }

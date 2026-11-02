@@ -57,3 +57,14 @@ export function validateAiResult(result, answerByKey) {
   return {...result,usedEvidenceKeys:[...used]};
 }
 
+export function prepareAiInput(answers, maxChars=50000) {
+  let used=0; const rows=[];
+  for(const answer of answers){
+    const row={sourceAnswerKey:answer.sourceAnswerKey,questionText:answer.questionText,answerText:answer.answerText,submittedAt:answer.submittedAt};
+    const size=JSON.stringify(row).length;
+    if(used+size>maxChars) break;
+    used+=size; rows.push(row);
+  }
+  return {rows,inputChars:used,truncated:rows.length<answers.length};
+}
+

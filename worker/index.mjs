@@ -1,4 +1,4 @@
-import {normalizeApiResponse,buildPublicProjection,validateAiResult} from './core.mjs';
+import {normalizeApiResponse,buildPublicProjection,validateAiResult,prepareAiInput} from './core.mjs';
 
 const SNAPSHOT_KEY='last-good-public-v1';
 const VN_OFFSET=7*3600*1000;
@@ -17,7 +17,10 @@ async function fetchDh3g(env,fromDate,toDate){
 }
 async function classifyWithApprovedAi(env,answers){
   if(!env.AI_ENDPOINT||!env.AI_API_KEY||!env.AI_MODEL) throw new Error('Approved AI service is not configured');
-  const res=await fetch(env.AI_ENDPOINT,{method:'POST',headers:{authorization:`Bearer ${env.AI_API_KEY}`,'content-type':'application/json'},body:JSON.stringify({model:env.AI_MODEL,input:{instruction:'Group every learner answer semantically into 5–10 evidence-derived themes. Produce synthesized numbered statements. Do not invent, force-fill, or suppress disagreement. Every statement must cite exact sourceAnswerKey.',answers}})});
+  if(env.AI_FREE_ONLY_CONFIRMED!=='true') throw new Error('AI free-only billing guard is not confirmed');
+  const prepared=prepareAiInput(answers,Number(env.AI_MAX_INPUT_CHARS || 50000));
+  if(prepared.truncated) throw new Error('AI input exceeds approved per-run limit; refusing partial classification');
+  const res=await fetch(env.AI_ENDPOINT,{method:'POST',headers:{authorization:`Bearer ${env.AI_API_KEY}`,'content-type':'application/json'},body:JSON.stringify({model:env.AI_MODEL,input:{instruction:'Group every learner answer semantically into 5–10 evidence-derived themes. Produce synthesized numbered statements. Do not invent, force-fill, or suppress disagreement. Every statement must cite exact sourceAnswerKey.',answers:prepared.rows}})});
   if(!res.ok) throw new Error(`AI HTTP ${res.status}`); return res.json();
 }
 async function sync(env){
