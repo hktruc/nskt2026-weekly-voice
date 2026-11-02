@@ -51,10 +51,12 @@ export function buildPublicProjection(snapshot) {
 export function validateAiResult(result, answerByKey) {
   const categoryLabels={journal_peer_feedback:'Nhật ký trải nghiệm khen chê',transformation:'Chuyển hóa sau thực hành',self_kaizen:'Điểm tự Kaizen',class_strengths:'Điểm tốt cần phát huy',class_improvements:'Điểm cần cải thiện trong lớp',learner_contributions:'Hành động đóng góp của học viên',btc_teacher_questions:'Khó khăn và câu hỏi đến BTC/Thầy'};
   const used=new Set(),evidencedInputs=new Set();
+  let statementCount=0,reviewCount=0,perfectConfidenceCount=0;
   for(const theme of result?.themes || []) {
     if(theme.id&&!categoryLabels[theme.id]) throw new Error(`AI category is invalid: ${theme.id}`);
     if(theme.id)theme.label=categoryLabels[theme.id];
     for(const statement of theme.statements || []) {
+    statementCount++;if(statement.needsHumanReview)reviewCount++;if(Number(statement.confidence)>=0.99)perfectConfidenceCount++;
     if(!Array.isArray(statement.evidence)||statement.evidence.length===0) throw new Error('AI statement evidence is required');
     if(statement.intent && !['praise','improvement','contribution','difficulty'].includes(statement.intent)) throw new Error(`AI intent is invalid: ${statement.intent}`);
     for(const evidence of statement.evidence || []) {
@@ -63,12 +65,18 @@ export function validateAiResult(result, answerByKey) {
     evidencedInputs.add(evidence.sourceAnswerKey);
     if(String(statement.summary ?? '').trim()&&!String(evidence.supportQuote ?? '').trim()) throw new Error(`AI support quote is required: ${evidence.sourceAnswerKey}`);
     if(evidence.supportQuote&&!source.answerText.includes(evidence.supportQuote)) throw new Error(`AI support quote not found in source: ${evidence.sourceAnswerKey}`);
+    const normalizedSummary=String(statement.summary||'').trim().toLocaleLowerCase('vi').replace(/\s+/g,' '),normalizedSource=String(source.answerText||'').toLocaleLowerCase('vi').replace(/\s+/g,' ');
+    if(normalizedSummary.length>=12&&normalizedSource.includes(normalizedSummary))throw new Error(`AI summary copies source text instead of synthesizing: ${evidence.sourceAnswerKey}`);
+    const normalizedQuote=String(evidence.supportQuote||'').normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/đ/gi,'d');
+    if(theme.id==='class_strengths'&&/(?:\bcan\b|\bmong\b|\bnen\b|\bthem\b|nhieu hon)/i.test(normalizedQuote)&&!statement.needsHumanReview&&Number(statement.confidence)>=0.9)throw new Error(`Ambiguous request is mislabeled as confident praise: ${evidence.sourceAnswerKey}`);
+    if(theme.id==='class_strengths'&&/(?:c?n|mong|n�n|th�m|nhi?u hon|nhi?u hon n?a)/i.test(String(evidence.supportQuote||''))&&!statement.needsHumanReview&&Number(statement.confidence)>=0.9)throw new Error(`Ambiguous request is mislabeled as confident praise: ${evidence.sourceAnswerKey}`);
     evidence.displayName=source.author.displayName; evidence.group=source.author.group;
     evidence.submittedAt=source.submittedAt; evidence.originalAnswer=source.originalAnswerText||source.answerText; evidence.questionText=source.questionText;evidence.sourceAnswerKey=source.originalSourceAnswerKey||source.sourceAnswerKey;
     used.add(evidence.sourceAnswerKey);
     }
     }
   }
+  if(statementCount>=3&&perfectConfidenceCount===statementCount&&reviewCount===0)throw new Error('AI quality calibration is implausibly uniform');
   const dispositions=result?.dispositions;
   if(!Array.isArray(dispositions)) return {...result,usedEvidenceKeys:[...used]};
   const dispositionKeys=new Set();
