@@ -15,6 +15,11 @@ else if(demoState==='error') { systemState.classList.add('error'); systemState.t
 else if(demoState==='unclassified') { systemState.classList.add('warning'); systemState.textContent='Có phản hồi chưa đủ rõ để phân loại. Ban Phụng sự cần rà soát thủ công.'; }
 else if(result.invalid.length) { systemState.classList.add('warning'); systemState.textContent=`${result.invalid.length} bản ghi có thời gian không hợp lệ, đã tách để rà soát.`; }
 else systemState.hidden=true;
+const sourceDialog=el('dialog','source-dialog');
+const dialogBody=el('div','dialog-body');
+const dialogClose=el('button','dialog-close','Đóng'); dialogClose.type='button'; dialogClose.addEventListener('click',()=>sourceDialog.close());
+sourceDialog.append(dialogClose,dialogBody); document.body.append(sourceDialog);
+function openSource(r){dialogBody.replaceChildren(el('p','eyebrow','Dữ liệu gốc liên quan'),el('h2','',r.author.displayName),el('p','meta',`${r.author.group} · ${fmt(new Date(r.submittedAt))}`),el('p','question',r.questionText),el('blockquote','',r.answerText),el('code','',`${r.submissionId} / ${r.sourceAnswerKey}`));sourceDialog.showModal()}
 
 document.querySelector('#range').textContent = `${fmt(result.start)} → ${fmt(result.end)}`;
 document.querySelector('#denominator').textContent = `${result.included.length} phản hồi hợp lệ • ${result.excludedGap.length} ngoài khung giờ`;
@@ -33,6 +38,8 @@ for (const topic of visible) {
   const head=el('div','topic-head'); head.append(el('span','pill',topic.label),el('span','count',`${topic.evidence.length}/${result.included.length}`));
   card.append(head,el('h2','',topic.summary));
   const ai=el('p','ai'); ai.append(el('strong','', 'AI diễn giải · '),document.createTextNode(`độ tin cậy ${Math.round(topic.confidence*100)}%`)); card.append(ai);
+  const people=el('div','contributors'); people.append(el('span','', 'Học viên: '));
+  for(const id of topic.evidence){const r=byAnswer.get(id);const b=el('button','person-link',r.author.displayName);b.type='button';b.addEventListener('click',()=>openSource(r));people.append(b)} card.append(people);
   const details=el('details'); details.append(el('summary','',`Xem ${topic.evidence.length} nguồn đối chiếu`));
   for (const id of topic.evidence) { const r=byAnswer.get(id); const box=el('div','evidence'); box.append(el('p','quote',`“${r.answerText}”`),el('p','meta',`${r.author.displayName} · ${r.author.group} · ${fmt(new Date(r.submittedAt))}`),el('code','',`${r.submissionId} / khóa dẫn xuất: ${r.sourceAnswerKey}`)); details.append(box); }
   card.append(details); grid.append(card);

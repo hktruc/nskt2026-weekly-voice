@@ -1,0 +1,9 @@
+{
+  "name": "nskt2026-weekly-voice",
+  "main": "worker/index.mjs",
+  "compatibility_date": "2026-11-02",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "kv_namespaces": [{ "binding": "SNAPSHOTS", "id": "CREATE_WITH_APPROVED_ACCOUNT" }],
+  "triggers": { "crons": ["17 */3 * * *"] },
+  "vars": { "AI_ENDPOINT": "APPROVED_PROVIDER_ENDPOINT", "AI_MODEL": "APPROVED_MODEL_NAME" }
+}
