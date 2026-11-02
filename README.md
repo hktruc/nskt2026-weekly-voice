@@ -1,5 +1,7 @@
 # NSKT2026 Weekly Voice
 
+Nguồn học tập: **Đại học 3 Gốc (`dh3g.vn`)**; API tại `api.dh3g.vn`.
+
 Prototype công khai dùng dữ liệu giả lập cho Ban Phụng sự đọc và xử lý phản hồi học viên theo tuần.
 
 ## Trạng thái
