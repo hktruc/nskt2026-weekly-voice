@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "nskt2026-weekly-voice",
+  "main": "worker/index.mjs",
+  "compatibility_date": "2026-11-02",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "durable_objects": { "bindings": [{ "name": "SNAPSHOT_STORE", "class_name": "SnapshotStore" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SnapshotStore"] }],
+  "ai": { "binding": "AI" },
+  "triggers": { "crons": ["17 */3 * * *"] },
+  "vars": {
+    "AI_MODEL": "@cf/meta/llama-3.1-8b-instruct",
+    "AI_FREE_ONLY_CONFIRMED": "true",
+    "AI_MAX_INPUT_CHARS": "30000"
+  }
+}
