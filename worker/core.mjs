@@ -50,7 +50,7 @@ export function buildPublicProjection(snapshot) {
 
 export function validateAiResult(result, answerByKey) {
   const categoryLabels={journal_peer_feedback:'Nhật ký trải nghiệm khen chê',transformation:'Chuyển hóa sau thực hành',self_kaizen:'Điểm tự Kaizen',class_strengths:'Điểm tốt cần phát huy',class_improvements:'Điểm cần cải thiện trong lớp',learner_contributions:'Hành động đóng góp của học viên',btc_teacher_questions:'Khó khăn và câu hỏi đến BTC/Thầy'};
-  const used=new Set();
+  const used=new Set(),evidencedInputs=new Set();
   for(const theme of result?.themes || []) {
     if(theme.id&&!categoryLabels[theme.id]) throw new Error(`AI category is invalid: ${theme.id}`);
     if(theme.id)theme.label=categoryLabels[theme.id];
@@ -60,6 +60,7 @@ export function validateAiResult(result, answerByKey) {
     for(const evidence of statement.evidence || []) {
     const source=answerByKey.get(evidence.sourceAnswerKey);
     if(!source) throw new Error(`AI evidence key not found: ${evidence.sourceAnswerKey}`);
+    evidencedInputs.add(evidence.sourceAnswerKey);
     if(String(statement.summary ?? '').trim()&&!String(evidence.supportQuote ?? '').trim()) throw new Error(`AI support quote is required: ${evidence.sourceAnswerKey}`);
     if(evidence.supportQuote&&!source.answerText.includes(evidence.supportQuote)) throw new Error(`AI support quote not found in source: ${evidence.sourceAnswerKey}`);
     evidence.displayName=source.author.displayName; evidence.group=source.author.group;
@@ -68,6 +69,12 @@ export function validateAiResult(result, answerByKey) {
     }
     }
   }
+  const dispositions=result?.dispositions;
+  if(!Array.isArray(dispositions)) return {...result,usedEvidenceKeys:[...used]};
+  const dispositionKeys=new Set();
+  for(const disposition of dispositions){if(!answerByKey.has(disposition.sourceAnswerKey))throw new Error(`AI disposition key not found: ${disposition.sourceAnswerKey}`);if(dispositionKeys.has(disposition.sourceAnswerKey))throw new Error(`AI disposition key duplicated: ${disposition.sourceAnswerKey}`);if(!['relevant','irrelevant','uncertain'].includes(disposition.status))throw new Error(`AI disposition invalid: ${disposition.status}`);dispositionKeys.add(disposition.sourceAnswerKey)}
+  if(dispositionKeys.size!==answerByKey.size)throw new Error(`AI dispositions incomplete: ${dispositionKeys.size}/${answerByKey.size}`);
+  for(const key of evidencedInputs)if(!dispositions.some(d=>d.sourceAnswerKey===key&&d.status==='relevant'))throw new Error(`AI evidenced answer is not marked relevant: ${key}`);
   return {...result,usedEvidenceKeys:[...used]};
 }
 
