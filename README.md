@@ -1,13 +1,12 @@
 # NSKT2026 Weekly Voice
 
-Prototype riêng tư cho Ban Phụng sự đọc và xử lý phản hồi học viên theo tuần.
+Prototype công khai dùng dữ liệu giả lập cho Ban Phụng sự đọc và xử lý phản hồi học viên theo tuần.
 
 ## Trạng thái
 
 - UI responsive dùng **dữ liệu giả lập** trong `dist/fixtures.mjs`.
 - Chưa kết nối DH3G API, chưa dùng AI thật, chưa chứa tên/nội dung học viên thật.
-- Chủ sở hữu đã chọn website **công khai, không đăng nhập**. Chưa phát hành GitHub/Cloudflare vì chưa chốt dữ liệu công khai là nguyên văn có tên hay bản tổng hợp ẩn danh, và chưa có thông số API được cấp quyền.
-- Repo đề xuất: `nskt2026-weekly-voice`.
+- Chủ sở hữu đã chọn website **công khai, không đăng nhập**. Mã nguồn demo đã phát hành tại `hktruc/nskt2026-weekly-voice`; Cloudflare chưa triển khai do OAuth token hiện thiếu scope `pages:write`.
 
 ## Chạy local
 
@@ -28,7 +27,7 @@ node --test tests/*.test.mjs
 1. Cloudflare Worker gọi DH3G API trực tiếp bằng secret phía server (không đưa token xuống trình duyệt).
 2. Worker chuẩn hóa submission/answer, khử trùng khóa dẫn xuất và lưu snapshot đã được phép vào D1. API giới hạn mỗi khoảng truy vấn tối đa 62 ngày; đây không phải khẳng định về thời gian lưu giữ dữ liệu.
 3. Bộ phân loại AI đọc **toàn bộ câu trả lời dạng văn bản**, không phụ thuộc số câu hỏi, trả về cấu trúc theo `docs/semantic-contract.md`.
-4. Mỗi kết luận giữ provenance: submission ID, answer ID, thời gian thật, tác giả và nguyên văn; source và diễn giải AI luôn tách riêng.
+4. Mỗi kết luận giữ provenance: submission ID, khóa câu trả lời dẫn xuất, thời gian thật, tác giả và nguyên văn; source và diễn giải AI luôn tách riêng.
 5. UI chỉ nhận dữ liệu sau khi xác thực và kiểm tra quyền truy cập.
 
 ### API đã truy vết từ lịch sử dự án
@@ -45,7 +44,7 @@ node --test tests/*.test.mjs
 1. Với website công khai: hiển thị tên + nguyên văn góp ý, hay chỉ bản tổng hợp đã ẩn danh?
 2. Tài liệu endpoint/schema và cơ chế auth DH3G đang dùng ở dashboard NSKT2026 DEV.
 3. Dịch vụ AI nào đã được phê duyệt để xử lý phản hồi học viên, chính sách lưu dữ liệu và vùng xử lý.
-4. GitHub organization/repository đích và Cloudflare account/project đích.
+4. Cấp lại quyền Cloudflare Wrangler có scope `pages:write`, hoặc hoàn tất direct upload qua dashboard.
 
 Không commit secrets, dữ liệu học viên, log payload thật hoặc output AI chứa dữ liệu thật.
 
