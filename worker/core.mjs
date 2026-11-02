@@ -37,24 +37,33 @@ export function buildPublicProjection(snapshot) {
     processing:{provider:snapshot.processing?.provider ?? 'not-configured',model:snapshot.processing?.model ?? null,status:snapshot.processing?.status ?? 'blocked',processedAt:snapshot.processing?.processedAt ?? null},
     themes:(snapshot.themes || []).map(theme=>({
       id:theme.id,label:theme.label,statements:(theme.statements || []).map((statement,i)=>({
-        number:i+1,summary:statement.summary,confidence:statement.confidence,needsHumanReview:Boolean(statement.needsHumanReview),
+        number:i+1,summary:statement.summary,intent:statement.intent,confidence:statement.confidence,needsHumanReview:Boolean(statement.needsHumanReview),
         contributors:(statement.evidence || []).map(e=>({displayName:e.displayName,group:e.group,sourceAnswerKey:e.sourceAnswerKey,submittedAt:e.submittedAt,originalAnswer:e.originalAnswer,questionText:e.questionText}))
       }))
     })),
-    excludedGap:snapshot.excludedGap || [],
+    excludedGap:(snapshot.excludedGap || []).map(row=>({sourceAnswerKey:row.sourceAnswerKey,assignmentId:row.assignmentId,submittedAt:row.submittedAt,reason:'outside-reporting-window'})),
     quarantineCount:Number(snapshot.quarantineCount || 0),
     source:{endpoint:'cohort-submissions',communityId:44,lastSuccessfulSyncAt:snapshot.lastSuccessfulSyncAt}
   };
 }
 
 export function validateAiResult(result, answerByKey) {
+  const categoryLabels={journal_peer_feedback:'Nhật ký trải nghiệm khen chê',transformation:'Chuyển hóa sau thực hành',self_kaizen:'Điểm tự Kaizen',class_strengths:'Điểm tốt cần phát huy',class_improvements:'Điểm cần cải thiện trong lớp',learner_contributions:'Hành động đóng góp của học viên',btc_teacher_questions:'Khó khăn và câu hỏi đến BTC/Thầy'};
   const used=new Set();
-  for(const theme of result?.themes || []) for(const statement of theme.statements || []) for(const evidence of statement.evidence || []) {
+  for(const theme of result?.themes || []) {
+    if(theme.id&&!categoryLabels[theme.id]) throw new Error(`AI category is invalid: ${theme.id}`);
+    if(theme.id)theme.label=categoryLabels[theme.id];
+    for(const statement of theme.statements || []) {
+    if(statement.intent && !['praise','improvement','contribution','difficulty'].includes(statement.intent)) throw new Error(`AI intent is invalid: ${statement.intent}`);
+    for(const evidence of statement.evidence || []) {
     const source=answerByKey.get(evidence.sourceAnswerKey);
     if(!source) throw new Error(`AI evidence key not found: ${evidence.sourceAnswerKey}`);
+    if(evidence.supportQuote && !source.answerText.includes(evidence.supportQuote)) throw new Error(`AI support quote not found in source: ${evidence.sourceAnswerKey}`);
     evidence.displayName=source.author.displayName; evidence.group=source.author.group;
     evidence.submittedAt=source.submittedAt; evidence.originalAnswer=source.answerText; evidence.questionText=source.questionText;
     used.add(evidence.sourceAnswerKey);
+    }
+    }
   }
   return {...result,usedEvidenceKeys:[...used]};
 }
