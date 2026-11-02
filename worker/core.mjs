@@ -14,8 +14,10 @@ export function sanitizeLearnerText(value) {
 
 export function normalizeApiResponse(payload) {
   const answers=[]; const quarantine=[];
+  const weeklyAssignmentIds=new Set((payload?.assignments || []).filter(a=>String(a.type ?? a.assignmentType ?? '').toUpperCase()==='WEEK').map(a=>String(a.id ?? a.assignmentId)));
   for(const member of payload?.members || []) for(const submission of member.submissions || []) {
     if(!submission?.submittedAt || !submission?.submissionId) continue;
+    if(!weeklyAssignmentIds.has(String(submission.assignmentId))) continue;
     (submission.answers || []).forEach((answer,index)=>{
       const raw=answer?.answer;
       if(raw == null || String(raw).trim()==='' || String(raw).trim()==='(Chưa trả lời)') return;
@@ -24,7 +26,7 @@ export function normalizeApiResponse(payload) {
       (clean.flagged?quarantine:answers).push(row);
     });
   }
-  return {answers,quarantine};
+  return {answers,quarantine,weeklyAssignmentCount:weeklyAssignmentIds.size};
 }
 
 export function buildPublicProjection(snapshot) {

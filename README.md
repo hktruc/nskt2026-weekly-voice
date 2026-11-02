@@ -2,6 +2,8 @@
 
 Nguồn học tập: **Đại học 3 Gốc (`dh3g.vn`)**; API tại `api.dh3g.vn`.
 
+Phạm vi nội dung: chỉ các assignment có `type=WEEK` (bài tập tuần). Bài tập ngày/NORMAL và các loại khác bị loại trước khi xử lý AI.
+
 Prototype công khai dùng dữ liệu giả lập cho Ban Phụng sự đọc và xử lý phản hồi học viên theo tuần.
 
 ## Trạng thái
