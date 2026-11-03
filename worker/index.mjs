@@ -39,6 +39,8 @@ async function storeGet(env,weekKey,{legacy=false}={}){const path=legacy?'legacy
 async function storePut(env,weekKey,value){const r=await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/week/${weekKey}`,{method:'PUT',body:value});if(!r.ok)throw new Error(`snapshot store ${r.status}`)}
 async function progressGet(env,weekKey){const r=await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/progress/${weekKey}`);return r.status===200?JSON.parse(await r.text()):null}
 async function progressPut(env,weekKey,value){const r=await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/progress/${weekKey}`,{method:'PUT',body:JSON.stringify(value)});if(!r.ok)throw new Error(`progress store ${r.status}`)}
+export function isAiQuotaError(error){return /(?:429|4006|quota|neurons|daily limit)/i.test(String(error?.message||error||''))}
+async function markProgressError(env,weekKey,error){const progress=await progressGet(env,weekKey);if(progress){progress.blockedReason=isAiQuotaError(error)?'ai-free-quota-exhausted':'processing-error';progress.lastErrorAt=new Date().toISOString();await progressPut(env,weekKey,progress)}}
 async function progressDelete(env,weekKey){await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/progress/${weekKey}`,{method:'DELETE'})}
 async function frozenChunkPut(env,weekKey,index,chunk){const r=await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/progress/${weekKey}/chunk/${index}`,{method:'PUT',body:JSON.stringify(chunk)});if(!r.ok)throw new Error(`frozen chunk store ${r.status}`)}
 async function frozenChunkGet(env,weekKey,index){const r=await env.SNAPSHOT_STORE.getByName('global').fetch(`https://store/progress/${weekKey}/chunk/${index}`);if(!r.ok)throw new Error(`frozen chunk missing: ${weekKey}/${index}`);return r.json()}
@@ -130,12 +132,12 @@ async function syncCurrentAndBackfill(env){
   for(let offset=1;offset<=8;offset++){
     const target=new Date(currentWindow.start.getTime()-offset*7*86400000+12*3600000);
     const key=weekKeyFor(windowFor(target));
-    if(!await storeGet(env,key)){missingOrPending=true;const historyAllowance=Math.max(0,runBudget.remaining-(currentNeeds?1:0));if(historyAllowance<=0)break;try{const result=await advanceWeek(env,target,historyAllowance,runBudget);if(!result.completed||runBudget.remaining<=(currentNeeds?1:0))break}catch(error){console.error('history_week_failed',key,error?.message);continue}}
+    if(!await storeGet(env,key)){missingOrPending=true;const historyAllowance=Math.max(0,runBudget.remaining-(currentNeeds?1:0));if(historyAllowance<=0)break;try{const result=await advanceWeek(env,target,historyAllowance,runBudget);if(!result.completed||runBudget.remaining<=(currentNeeds?1:0))break}catch(error){await markProgressError(env,key,error);console.error('history_week_failed',key,error?.message);if(isAiQuotaError(error))throw error;continue}}
   }
   let refreshedQueuedHistory=false;
   if(!missingOrPending&&runBudget.remaining>(currentNeeds?1:0)){for(let offset=1;offset<=8;offset++){const target=new Date(currentWindow.start.getTime()-offset*7*86400000+12*3600000),key=weekKeyFor(windowFor(target)),stored=await storeGet(env,key),snapshot=stored?JSON.parse(stored):null;if(snapshot?.coverage?.pendingRefresh===true){const allowance=Math.max(0,runBudget.remaining-(currentNeeds?1:0));if(!allowance)break;try{await advanceWeek(env,target,allowance,runBudget)}catch(error){console.error('history_pending_refresh_failed',key,error?.message)}refreshedQueuedHistory=true;break}}}
   if(!missingOrPending&&!refreshedQueuedHistory&&runBudget.remaining>(currentNeeds?1:0)){for(let offset=1;offset<=2;offset++){const target=new Date(currentWindow.start.getTime()-offset*7*86400000+12*3600000),key=weekKeyFor(windowFor(target)),stored=await storeGet(env,key);if(stored&&needsHistoricalRefresh(JSON.parse(stored))){const allowance=Math.max(0,runBudget.remaining-(currentNeeds?1:0));if(!allowance)break;try{await advanceWeek(env,target,allowance,runBudget)}catch(error){console.error('history_refresh_failed',key,error?.message)}break}}}
-  if(currentNeeds&&runBudget.remaining>0)try{await advanceWeek(env,new Date(),1,runBudget)}catch(error){console.error('current_week_failed',currentKey,error?.message)}
+  if(currentNeeds&&runBudget.remaining>0)try{await advanceWeek(env,new Date(),1,runBudget)}catch(error){await markProgressError(env,currentKey,error);console.error('current_week_failed',currentKey,error?.message);if(isAiQuotaError(error))throw error}
 }
 export class SnapshotStore {
   constructor(ctx){this.ctx=ctx}
@@ -162,7 +164,7 @@ export default {
       let stored=env.SNAPSHOT_STORE?await storeGet(env,key):null;
       if(!stored&&key===currentKey)stored=await storeGet(env,key,{legacy:true});
       const value=minimizeStoredProjection(stored);
-      if(!value){const progress=await progressGet(env,key),processed=progress?new Set(progress.processedSourceKeys||[]).size:0;return Response.json({status:'pending-backfill',week:{key,start:requestedWindow.start.toISOString(),end:requestedWindow.end.toISOString()},coverage:progress?{status:'processing',modelProcessedAnswers:processed,inputAnswers:progress.inputAnswers,pendingAnswers:Math.max(0,progress.inputAnswers-processed),completedChunks:progress.nextChunk,totalChunks:progress.totalChunks}:{status:'queued'}},{status:404,headers:{'cache-control':'no-store'}})}
+      if(!value){const progress=await progressGet(env,key),processed=progress?new Set(progress.processedSourceKeys||[]).size:0;return Response.json({status:'pending-backfill',week:{key,start:requestedWindow.start.toISOString(),end:requestedWindow.end.toISOString()},coverage:progress?{status:progress.blockedReason?'blocked':'processing',blockedReason:progress.blockedReason||null,lastErrorAt:progress.lastErrorAt||null,modelProcessedAnswers:processed,inputAnswers:progress.inputAnswers,pendingAnswers:Math.max(0,progress.inputAnswers-processed),completedChunks:progress.nextChunk,totalChunks:progress.totalChunks}:{status:'queued'}},{status:404,headers:{'cache-control':'no-store'}})}
       return new Response(value,{status:200,headers:{'content-type':'application/json; charset=utf-8','cache-control':'public,max-age=300'}});
     }
     if(url.pathname==='/api/health') return Response.json({ok:true,connected:Boolean(env.DH3G_API_KEY&&env.AI&&env.AI_MODEL&&env.SNAPSHOT_STORE),freeOnly:env.AI_FREE_ONLY_CONFIRMED==='true'});
