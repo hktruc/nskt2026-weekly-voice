@@ -54,6 +54,7 @@ export function validateAiResult(result, answerByKey) {
   let statementCount=0,reviewCount=0,perfectConfidenceCount=0;
   for(const theme of result?.themes || []) {
     if(theme.id&&!categoryLabels[theme.id]) throw new Error(`AI category is invalid: ${theme.id}`);
+    if((theme.statements||[]).length>10)throw new Error(`AI category exceeds 10 synthesized ideas: ${theme.id}`);
     if(theme.id)theme.label=categoryLabels[theme.id];
     for(const statement of theme.statements || []) {
     statementCount++;if(statement.needsHumanReview)reviewCount++;if(Number(statement.confidence)>=0.99)perfectConfidenceCount++;
